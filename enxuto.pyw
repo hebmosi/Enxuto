@@ -46,7 +46,7 @@ import tkinter as tk  # noqa: E402
 from tkinter import ttk, filedialog, messagebox  # noqa: E402
 
 APP_NAME = "Enxuto"
-VERSION = "1.2"
+VERSION = "1.2.1"
 IS_WIN = os.name == "nt"
 NO_WINDOW = 0x08000000 if IS_WIN else 0  # CREATE_NO_WINDOW: sem janelas de console piscando
 

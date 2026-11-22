@@ -27,6 +27,9 @@ SYSTEM = {
 }
 
 
+RUNTIME_LOADED = {"sdl2.dll": ["SDL3.dll"]}
+
+
 def imports_of(path):
     pe = pefile.PE(path, fast_load=True)
     pe.parse_data_directories(directories=[
@@ -127,6 +130,16 @@ def main():
     for f in exes:
         shutil.copy2(os.path.join(LIBBIN, f), fdir)
     need, missing = closure([os.path.join(fdir, f) for f in exes], avail)
+    # DLLs carregadas só durante a execução (não aparecem na tabela de importação):
+    # o SDL2.dll do conda-forge é o "sdl2-compat", que abre o SDL3.dll para tocar o som.
+    for dll, extras in RUNTIME_LOADED.items():
+        if dll in need:
+            for extra in extras:
+                if extra.lower() in avail and extra.lower() not in need:
+                    need[extra.lower()] = avail[extra.lower()]
+                    more, miss2 = closure([avail[extra.lower()]], avail)
+                    need.update(more)
+                    missing |= miss2
     for dll, path in need.items():
         shutil.copy2(path, fdir)
     print("ffmpeg: DLLs:", len(need))

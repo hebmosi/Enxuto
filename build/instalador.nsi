@@ -4,7 +4,7 @@ SetCompressorDictSize 64
 
 !define APPNAME "Enxuto"
 !define APPKEY "Enxuto"
-!define VERSION "1.2.0"
+!define VERSION "1.2.1"
 !define SRC "dist\Enxuto"
 
 Name "${APPNAME}"
