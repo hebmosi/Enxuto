@@ -65,4 +65,11 @@ Para lançar uma nova versão, altere `VERSION` em `enxuto.pyw` e em `build/inst
 
 ## Licenças
 
-O instalador inclui o Python (licença PSF) e o FFmpeg com x264/x265 (GPL). Os textos das licenças ficam na pasta de instalação (`runtime/LICENSE_PYTHON.txt` e `ffmpeg/licencas/`).
+O código do Enxuto é distribuído sob a licença MIT (veja `LICENSE`).
+
+O instalador inclui programas de terceiros, que mantêm as próprias licenças:
+- **FFmpeg 8.1.2** (build "gpl" do conda-forge, com x264 e x265), licenciado sob a GPL.
+  Os textos da licença acompanham a instalação em `ffmpeg/licencas/`.
+  Código-fonte: https://ffmpeg.org/releases/ e receita do build em
+  https://github.com/conda-forge/ffmpeg-feedstock
+- **Python 3.12** (licença PSF), em `runtime/LICENSE_PYTHON.txt`.
