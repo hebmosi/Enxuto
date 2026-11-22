@@ -46,7 +46,7 @@ import tkinter as tk  # noqa: E402
 from tkinter import ttk, filedialog, messagebox  # noqa: E402
 
 APP_NAME = "Enxuto"
-VERSION = "1.1"
+VERSION = "1.2"
 IS_WIN = os.name == "nt"
 NO_WINDOW = 0x08000000 if IS_WIN else 0  # CREATE_NO_WINDOW: sem janelas de console piscando
 
@@ -98,13 +98,95 @@ VIDEO_TYPES = "*.mp4 *.mkv *.mov *.avi *.webm *.m4v *.flv *.wmv *.ts *.mts *.m2t
 LIGHT = dict(bg="#f0f0f0", field="#ffffff", fg="#1a1a1a", muted="#666666", border="#b4b4b4",
              hover="#e1e1e1", press="#cfcfcf", accent="#2f6fd6", accent_hover="#3f7fe6", warn="#b05a00",
              sel="#2f6fd6", track="#cacaca", track_line="#9a9a9a", range="#8bb8ff", range_line="#2f6fd6",
-             head="#d02020", tip_bg="#ffffe1", tip_fg="#000000", menubar="#e9e9e9")
+             head="#d02020", tip_bg="#ffffe1", tip_fg="#000000", menubar="#e9e9e9",
+             cut="#d9534f", fast="#f0ad4e")
 DARK = dict(bg="#1e1f22", field="#2b2d31", fg="#e6e6e6", muted="#9aa0a6", border="#43474e",
             hover="#35383d", press="#3f4349", accent="#3d7be0", accent_hover="#5590f0", warn="#f0a35e",
             sel="#2f6fd6", track="#3a3d42", track_line="#55595f", range="#2c5596", range_line="#6ea2ff",
-            head="#ff5555", tip_bg="#2b2d31", tip_fg="#e6e6e6", menubar="#26282b")
+            head="#ff5555", tip_bg="#2b2d31", tip_fg="#e6e6e6", menubar="#26282b",
+            cut="#c0504d", fast="#e0a040")
 PALETTE = dict(LIGHT)
 THEMES = {"Seguir o Windows": "system", "Claro": "light", "Escuro": "dark"}
+SPEEDS = {"1,5×": 1.5, "2×": 2.0, "3×": 3.0, "4×": 4.0, "8×": 8.0, "16×": 16.0}
+
+# (id, descrição, atalho padrão)
+ACTIONS = [
+    ("play", "Tocar / pausar", "<Key-space>"),
+    ("mute", "Ligar / desligar o som da prévia", "<Key-m>"),
+    ("prev_frame", "Quadro anterior", "<Key-Left>"),
+    ("next_frame", "Próximo quadro", "<Key-Right>"),
+    ("back_1s", "Voltar 1 segundo", "<Shift-Key-Left>"),
+    ("fwd_1s", "Avançar 1 segundo", "<Shift-Key-Right>"),
+    ("back_10s", "Voltar 10 segundos", "<Control-Key-Left>"),
+    ("fwd_10s", "Avançar 10 segundos", "<Control-Key-Right>"),
+    ("prev_key", "Keyframe anterior", "<Key-Down>"),
+    ("next_key", "Próximo keyframe", "<Key-Up>"),
+    ("first", "Ir para o início", "<Key-Home>"),
+    ("last", "Ir para o fim", "<Key-End>"),
+    ("set_a", "Marcar A (início da seleção)", "<Key-bracketleft>"),
+    ("set_b", "Marcar B (fim da seleção)", "<Key-bracketright>"),
+    ("goto_a", "Ir para A", ""),
+    ("goto_b", "Ir para B", ""),
+    ("clear_sel", "Limpar seleção", ""),
+    ("cut", "Remover o trecho A–B", "<Key-Delete>"),
+    ("speed", "Acelerar o trecho A–B", "<Key-r>"),
+    ("undo", "Desfazer", "<Control-Key-z>"),
+    ("open", "Abrir vídeo", "<Control-Key-o>"),
+    ("save", "Salvar vídeo", "<Control-Key-s>"),
+]
+DEFAULT_KEYS = {a: d for a, _, d in ACTIONS}
+KEY_NAMES = {
+    "space": "Espaço", "Left": "←", "Right": "→", "Up": "↑", "Down": "↓", "bracketleft": "[",
+    "bracketright": "]", "braceleft": "{", "braceright": "}", "Prior": "PgUp", "Next": "PgDn",
+    "Return": "Enter", "BackSpace": "Backspace", "Escape": "Esc", "comma": ",", "period": ".",
+    "minus": "-", "plus": "+", "equal": "=", "slash": "/", "backslash": "\\", "semicolon": ";",
+    "apostrophe": "'", "grave": "`", "less": "<", "greater": ">", "question": "?", "colon": ":",
+    "underscore": "_", "asterisk": "*", "KP_Add": "+ (teclado numérico)", "KP_Subtract": "- (teclado numérico)",
+}
+MOD_LABELS = {"Control": "Ctrl", "Alt": "Alt", "Shift": "Shift"}
+MODIFIER_KEYS = {"Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R", "Meta_L", "Meta_R",
+                 "Super_L", "Super_R", "Caps_Lock", "Win_L", "Win_R", "ISO_Level3_Shift", "Num_Lock"}
+
+
+def seq_parts(seq):
+    parts = seq.strip("<>").split("-")
+    key = parts[-1]
+    mods = [m for m in parts[:-1] if m in MOD_LABELS]
+    return mods, key
+
+
+def seq_label(seq):
+    if not seq:
+        return "—"
+    mods, key = seq_parts(seq)
+    name = KEY_NAMES.get(key, key.upper() if len(key) == 1 else key)
+    return "+".join([MOD_LABELS[m] for m in mods] + [name])
+
+
+def seq_variants(seq):
+    """Sequências do Tk para registrar (letras: maiúscula e minúscula, por causa do Caps Lock)."""
+    mods, key = seq_parts(seq)
+    if len(key) == 1 and key.isalpha():
+        keys = [key.upper()] if "Shift" in mods else [key.lower(), key.upper()]
+    else:
+        keys = [key]
+    return ["<" + "-".join(mods + ["Key", k]) + ">" for k in keys]
+
+
+def event_to_seq(e):
+    ks = e.keysym
+    if ks in MODIFIER_KEYS or not ks:
+        return None
+    mods = []
+    if e.state & 0x4:
+        mods.append("Control")
+    if e.state & (0x20000 if IS_WIN else 0x8):
+        mods.append("Alt")
+    if e.state & 0x1:
+        mods.append("Shift")
+    if len(ks) == 1 and ks.isalpha():
+        ks = ks.lower()
+    return "<" + "-".join(mods + ["Key", ks]) + ">"
 
 
 def config_path():
@@ -207,6 +289,13 @@ def style_widgets(st, P, base_font):
     st.configure("TSeparator", background=P["border"])
     st.configure("Hint.TLabel", foreground=P["muted"], font=(base_font, 8))
     st.configure("Warn.TLabel", foreground=P["warn"])
+    st.configure("Treeview", background=P["field"], fieldbackground=P["field"], foreground=P["fg"],
+                 bordercolor=P["border"], rowheight=22)
+    st.map("Treeview", background=[("selected", P["sel"])], foreground=[("selected", "#ffffff")])
+    st.configure("Treeview.Heading", background=P["bg"], foreground=P["fg"], bordercolor=P["border"],
+                 lightcolor=P["bg"], darkcolor=P["bg"])
+    st.map("Treeview.Heading", background=[("active", P["hover"])])
+    st.configure("Edit.TButton", padding=(6, 2), font=(base_font, 10))
     st.configure("Menubar.TFrame", background=P["menubar"])
     st.layout("Menubar.TMenubutton", [("Menubutton.border", {"sticky": "nswe", "children": [
         ("Menubutton.padding", {"sticky": "nswe", "children": [("Menubutton.label", {"sticky": "nswe"})]})]})])
@@ -346,7 +435,8 @@ def probe(ffprobe, path):
         ch = int(s.get("channels") or 0)
         tracks.append(dict(name=name, codec=s.get("codec_name", "?"), channels=ch,
                            bitrate=_f(s.get("bit_rate")), lang=tags.get("language", "")))
-    return dict(duration=dur, start=_f(fmt.get("start_time")), width=w, height=h, fps=fps,
+    fps_str = v.get("avg_frame_rate") if _rate(v.get("avg_frame_rate")) else None
+    return dict(duration=dur, start=_f(fmt.get("start_time")), width=w, height=h, fps=fps, fps_str=fps_str,
                 vcodec=v.get("codec_name", "?"), audio_tracks=len(a), audio=tracks,
                 acodec=(a[0].get("codec_name") if a else None),
                 size=size, bitrate=br, audio_bitrate=abr)
@@ -479,19 +569,62 @@ def audio_args(s, info):
     return fc + maps + ["-c:a", "aac", "-b:a", f"{a}k"]
 
 
+def compute_segments(a, b, edits):
+    """Trechos que vão para o vídeo final: [(início, fim, velocidade)], dentro de A–B, sem os removidos."""
+    segs = [(a, b, 1.0)]
+    for e in sorted(edits, key=lambda x: x["start"]):
+        out = []
+        for (x0, x1, f) in segs:
+            s0, s1 = max(x0, e["start"]), min(x1, e["end"])
+            if s1 - s0 <= 1e-6:
+                out.append((x0, x1, f))
+                continue
+            if s0 > x0:
+                out.append((x0, s0, f))
+            if e["kind"] == "speed":
+                out.append((s0, s1, e["factor"]))
+            if s1 < x1:
+                out.append((s1, x1, f))
+        segs = out
+    merged = []
+    for seg in segs:
+        if seg[1] - seg[0] < 0.02:
+            continue
+        if merged and merged[-1][2] == seg[2] and abs(merged[-1][1] - seg[0]) < 1e-6:
+            merged[-1] = (merged[-1][0], seg[1], seg[2])
+        else:
+            merged.append(seg)
+    return merged
+
+
+def add_edit(edits, new):
+    """Insere uma edição; ela substitui o que houver por baixo dela."""
+    out = []
+    for e in edits:
+        if e["end"] <= new["start"] or e["start"] >= new["end"]:
+            out.append(e)
+            continue
+        if e["start"] < new["start"]:
+            out.append(dict(e, end=new["start"]))
+        if e["end"] > new["end"]:
+            out.append(dict(e, start=new["end"]))
+    out.append(new)
+    return sorted([e for e in out if e["end"] - e["start"] > 0.01], key=lambda x: x["start"])
+
+
 def video_budget(s, info):
     """Calcula o bitrate de vídeo para caber no tamanho pedido (modos MB e %)."""
-    dur = s["end"] - s["start"]
+    dur = s["out_dur"]
     if s["mode"] == "mb":
         target = s["mb"] * 1024 * 1024
     else:
-        target = info["size"] * (dur / info["duration"]) * s["pct"] / 100.0
+        target = info["size"] * (s["src_dur"] / info["duration"]) * s["pct"] / 100.0
     total_kbps = target * 8 / dur / 1000 * 0.975  # folga para o contêiner
     akbps = audio_kbps_for(s, info)
     vk = total_kbps - akbps
     if vk < 50:
-        raise ValueError("Esse tamanho é pequeno demais para um trecho dessa duração. "
-                         "Aumente o limite, encurte o trecho ou reduza/remova o áudio.")
+        raise ValueError("Esse tamanho é pequeno demais para um vídeo dessa duração. "
+                         "Aumente o limite, encurte o vídeo ou reduza/remova o áudio.")
     capped = False
     src_vk = (info["bitrate"] - info["audio_bitrate"]) / 1000
     if src_vk > 100 and vk > src_vk:
@@ -499,30 +632,11 @@ def video_budget(s, info):
     return int(vk), akbps, target, capped
 
 
-def build_jobs(s, info, ff):
-    """Monta os comandos do FFmpeg. Retorna lista de (descrição, comando, peso no progresso)."""
-    start, dur = s["start"], s["end"] - s["start"]
-    head = [ff, "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
-            "-ss", f"{start:.3f}", "-i", s["src"], "-t", f"{dur:.3f}"]
-    prog = ["-progress", "pipe:1", "-nostats"]
-    out = s["out"]
-    is_mp4 = out.lower().endswith((".mp4", ".m4v", ".mov"))
-    mux = ["-movflags", "+faststart"] if is_mp4 else []
-    vcodec = s["vcodec"]
-    aargs = audio_args(s, info)
-
-    if vcodec == "copy":
-        cmd = head + ["-map", "0:v:0", "-c:v", "copy"] + aargs + \
-            ["-avoid_negative_ts", "make_zero"] + mux + prog + [out]
-        return [("Copiando o trecho", cmd, 1.0)]
-
-    v = ["-map", "0:v:0", "-c:v", vcodec, "-preset", s["preset"], "-pix_fmt", "yuv420p"]
+def video_codec_args(s, info, is_mp4):
+    vcodec, mode = s["vcodec"], s["mode"]
+    v = ["-c:v", vcodec, "-preset", s["preset"], "-pix_fmt", "yuv420p"]
     if vcodec == "libx265" and is_mp4:
         v += ["-tag:v", "hvc1"]
-    vf = video_filter(info, s["height"], s.get("aspect", "keep"))
-    if vf:
-        v += ["-vf", vf]
-    mode = s["mode"]
     if mode in ("mb", "pct"):
         vk = video_budget(s, info)[0]
         v += ["-b:v", f"{vk}k"]
@@ -532,22 +646,167 @@ def build_jobs(s, info, ff):
         v += ["-crf", str(s["crf"])]
     else:
         v += ["-crf", str(s["crf"]), "-maxrate", f"{s['maxrate']}k", "-bufsize", f"{s['maxrate'] * 2}k"]
+    return v
+
+
+def edit_graph(s, info, with_audio):
+    """filter_complex que emenda os trechos (cada um é uma entrada do FFmpeg) e aplica a velocidade."""
+    segs = s["segments"]
+    tracks = s["tracks"] if (with_audio and info["audio"] and s["audio"] not in (0, "copy")) else []
+    mix = s.get("mix") and len(tracks) > 1
+    n_aout = 1 if mix else len(tracks)
+    parts, cat = [], []
+    for j, (_, _, f) in enumerate(segs):
+        sp = "setpts=PTS-STARTPTS" if f == 1 else f"setpts=(PTS-STARTPTS)/{f:g}"
+        parts.append(f"[{j}:v:0]{sp}[v{j}]")
+        cat.append(f"[v{j}]")
+        labs = []
+        for k, (i, vol) in enumerate(tracks):
+            chain = ["asetpts=PTS-STARTPTS"]
+            if vol != 100:
+                chain.append(f"volume={vol / 100:.2f}")
+            if f != 1:
+                chain.append(f"atempo={f:g}")
+            parts.append(f"[{j}:a:{i}]" + ",".join(chain) + f"[t{j}x{k}]")
+            labs.append(f"[t{j}x{k}]")
+        if mix:
+            parts.append("".join(labs) + f"amix=inputs={len(labs)}:duration=longest:normalize=0[m{j}]")
+            cat.append(f"[m{j}]")
+        else:
+            cat += labs
+    outs = "[vc]" + "".join(f"[ac{k}]" for k in range(n_aout))
+    parts.append("".join(cat) + f"concat=n={len(segs)}:v=1:a={n_aout}" + outs)
+    vf = [f"fps={info.get('fps_str') or round(info['fps'], 3)}"]
+    extra = video_filter(info, s["height"], s.get("aspect", "keep"))
+    if extra:
+        vf.append(extra)
+    parts.append("[vc]" + ",".join(vf) + "[vout]")
+    maps = ["-map", "[vout]"]
+    for k in range(n_aout):
+        maps += ["-map", f"[ac{k}]"]
+    aopts = ["-c:a", "aac", "-b:a", f"{s['audio']}k"] if n_aout else ["-an"]
+    return ["-filter_complex", ";".join(parts)] + maps + aopts
+
+
+def build_jobs(s, info, ff):
+    """Monta os comandos do FFmpeg. Retorna lista de (descrição, comando, peso no progresso)."""
+    prog = ["-progress", "pipe:1", "-nostats"]
+    out = s["out"]
+    is_mp4 = out.lower().endswith((".mp4", ".m4v", ".mov"))
+    mux = ["-movflags", "+faststart"] if is_mp4 else []
+    vcodec = s["vcodec"]
+    base = [ff, "-hide_banner", "-nostdin", "-loglevel", "error", "-y"]
+    segs = s["segments"]
+    simple = len(segs) == 1 and segs[0][2] == 1
+
+    if simple:
+        start, end, _ = segs[0]
+        head = base + ["-ss", f"{start:.3f}", "-i", s["src"], "-t", f"{end - start:.3f}"]
+        aargs = audio_args(s, info)
+        if vcodec == "copy":
+            cmd = head + ["-map", "0:v:0", "-c:v", "copy"] + aargs + \
+                ["-avoid_negative_ts", "make_zero"] + mux + prog + [out]
+            return [("Copiando o trecho", cmd, 1.0)]
+        v = ["-map", "0:v:0"] + video_codec_args(s, info, is_mp4)
+        vf = video_filter(info, s["height"], s.get("aspect", "keep"))
+        if vf:
+            v += ["-vf", vf]
+        a_pass2, a_pass1 = aargs, ["-an"]
+    else:
+        if vcodec == "copy":
+            raise ValueError("Remover trechos do meio ou acelerar precisa recodificar o vídeo. "
+                             "Em \"Saída de vídeo\", escolha H.264 ou H.265.")
+        if s["audio"] == "copy" and info["audio"] and s["tracks"]:
+            raise ValueError("Remover trechos do meio ou acelerar precisa recodificar o áudio. "
+                             "Em \"Saída de áudio\", escolha uma opção AAC.")
+        head = list(base)
+        for (a, b, _) in segs:
+            head += ["-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", s["src"]]
+        v = video_codec_args(s, info, is_mp4)
+        a_pass2 = edit_graph(s, info, with_audio=True)
+        a_pass1 = edit_graph(s, info, with_audio=False)
 
     def x265(extra):
         if vcodec != "libx265":
             return []
         return ["-x265-params", ":".join(["log-level=error"] + extra)]
 
-    if mode in ("mb", "pct") and s["two_pass"]:
+    if s["mode"] in ("mb", "pct") and s["two_pass"]:
         # Os arquivos de log das passagens ficam na pasta temporária (cwd do processo).
         if vcodec == "libx264":
-            p1 = head + v + ["-pass", "1", "-passlogfile", "passlog", "-an", "-f", "null"] + prog + ["-"]
-            p2 = head + v + ["-pass", "2", "-passlogfile", "passlog"] + aargs + mux + prog + [out]
+            p1 = head + a_pass1 + v + ["-pass", "1", "-passlogfile", "passlog", "-f", "null"] + prog + ["-"]
+            p2 = head + a_pass2 + v + ["-pass", "2", "-passlogfile", "passlog"] + mux + prog + [out]
         else:
-            p1 = head + v + x265(["pass=1", "stats=x265.log"]) + ["-an", "-f", "null"] + prog + ["-"]
-            p2 = head + v + x265(["pass=2", "stats=x265.log"]) + aargs + mux + prog + [out]
+            p1 = head + a_pass1 + v + x265(["pass=1", "stats=x265.log"]) + ["-f", "null"] + prog + ["-"]
+            p2 = head + a_pass2 + v + x265(["pass=2", "stats=x265.log"]) + mux + prog + [out]
         return [("Passagem 1 de 2 (analisando o vídeo)", p1, 0.4), ("Passagem 2 de 2 (codificando)", p2, 0.6)]
-    return [("Codificando", head + v + x265([]) + aargs + mux + prog + [out], 1.0)]
+    return [("Codificando", head + a_pass2 + v + x265([]) + mux + prog + [out], 1.0)]
+
+
+def join_signature(info):
+    return (info["vcodec"], info["width"], info["height"], round(info["fps"], 2),
+            tuple((t["codec"], t["channels"]) for t in info["audio"]))
+
+
+def join_compatible(infos):
+    return len({join_signature(i) for i in infos}) == 1
+
+
+def fit_filter(W, H, fit):
+    if fit == "stretch":
+        return f"scale={W}:{H}"
+    if fit == "crop":
+        return f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}"
+    return f"scale={W}:{H}:force_original_aspect_ratio=decrease,pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black"
+
+
+def build_join_job(ff, files, infos, out, fit, list_path):
+    """Junta vídeos em sequência. Sem recodificar quando todos são do mesmo formato."""
+    prog = ["-progress", "pipe:1", "-nostats"]
+    is_mp4 = out.lower().endswith((".mp4", ".m4v", ".mov"))
+    mux = ["-movflags", "+faststart"] if is_mp4 else []
+    base = [ff, "-hide_banner", "-nostdin", "-loglevel", "error", "-y"]
+    first = infos[0]
+    if join_compatible(infos):
+        with open(list_path, "w", encoding="utf-8") as f:
+            for path in files:
+                f.write("file '" + path.replace("\\", "/").replace("'", "'\\''") + "'\n")
+        cmd = base + ["-f", "concat", "-safe", "0", "-i", list_path, "-map", "0:v:0", "-map", "0:a?",
+                      "-c", "copy"] + mux + prog + [out]
+        return [("Juntando (sem recodificar)", cmd, 1.0)]
+    W, H = _even(first["width"]), _even(first["height"])
+    fps = first.get("fps_str") or f"{first['fps']:.3f}"
+    n_a = max(len(i["audio"]) for i in infos)
+    cmd = list(base)
+    for path in files:
+        cmd += ["-i", path]
+    parts, cat = [], []
+    for j, info in enumerate(infos):
+        parts.append(f"[{j}:v:0]{fit_filter(W, H, fit)},setsar=1,fps={fps},format=yuv420p[v{j}]")
+        cat.append(f"[v{j}]")
+        for k in range(n_a):
+            if k < len(info["audio"]):
+                parts.append(f"[{j}:a:{k}]asetpts=PTS-STARTPTS,aresample=48000,"
+                             f"aformat=sample_rates=48000:channel_layouts=stereo[a{j}x{k}]")
+            else:
+                parts.append(f"anullsrc=r=48000:cl=stereo,atrim=duration={info['duration']:.3f}[a{j}x{k}]")
+            cat.append(f"[a{j}x{k}]")
+    outs = "[vout]" + "".join(f"[ao{k}]" for k in range(n_a))
+    parts.append("".join(cat) + f"concat=n={len(files)}:v=1:a={n_a}" + outs)
+    cmd += ["-filter_complex", ";".join(parts), "-map", "[vout]"]
+    for k in range(n_a):
+        cmd += ["-map", f"[ao{k}]"]
+        names = [i["audio"][k]["name"] for i in infos if k < len(i["audio"]) and i["audio"][k]["name"]]
+        if names:
+            cmd += [f"-metadata:s:a:{k}", f"title={names[0]}"]
+            if is_mp4:
+                cmd += [f"-metadata:s:a:{k}", f"handler_name={names[0]}"]
+    # qualidade alta: o arquivo juntado é uma etapa intermediária; a compressão vem depois, no editor
+    cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p"]
+    if n_a:
+        cmd += ["-c:a", "aac", "-b:a", "192k"]
+    cmd += mux + prog + [out]
+    return [("Juntando os vídeos", cmd, 1.0)]
 
 
 def parse_out_time(txt):
@@ -634,6 +893,41 @@ class Player:
             pass
 
 
+class AudioPlayer:
+    """Som da prévia: o FFmpeg decodifica e mixa as faixas escolhidas e o ffplay toca."""
+
+    def __init__(self, ff, ffplay, src, t0, tracks):
+        cmd = [ff, "-hide_banner", "-nostdin", "-loglevel", "error", "-ss", f"{t0:.3f}", "-i", src, "-vn", "-sn"]
+        if len(tracks) == 1 and tracks[0][1] == 100:
+            cmd += ["-map", f"0:a:{tracks[0][0]}"]
+        else:
+            parts, labs = [], []
+            for k, (i, vol) in enumerate(tracks):
+                parts.append(f"[0:a:{i}]volume={vol / 100:.2f}[p{k}]")
+                labs.append(f"[p{k}]")
+            if len(labs) > 1:
+                parts.append("".join(labs) + f"amix=inputs={len(labs)}:duration=longest:normalize=0[pm]")
+                out = "[pm]"
+            else:
+                out = labs[0]
+            cmd += ["-filter_complex", ";".join(parts), "-map", out]
+        cmd += ["-ac", "2", "-ar", "48000", "-f", "wav", "-"]
+        self.dec = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                    stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+        self.play = subprocess.Popen([ffplay, "-hide_banner", "-loglevel", "quiet", "-nodisp", "-autoexit",
+                                      "-fflags", "nobuffer", "-probesize", "4096", "-f", "wav", "pipe:0"],
+                                     stdin=self.dec.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                     creationflags=NO_WINDOW)
+        self.dec.stdout.close()
+
+    def stop(self):
+        for p in (self.play, self.dec):
+            try:
+                p.kill()
+            except OSError:
+                pass
+
+
 # --------------------------------------------------------------------------- widgets auxiliares
 
 class Tooltip:
@@ -660,7 +954,8 @@ class Tooltip:
         self.tip = tw = tk.Toplevel(self.w)
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
-        tk.Label(tw, text=self.text, background=PALETTE["tip_bg"], foreground=PALETTE["tip_fg"], relief="solid",
+        text = self.text() if callable(self.text) else self.text
+        tk.Label(tw, text=text, background=PALETTE["tip_bg"], foreground=PALETTE["tip_fg"], relief="solid",
                  borderwidth=1, padx=6, pady=3, justify="left").pack()
 
     def _hide(self, _e=None):
@@ -719,9 +1014,12 @@ class ScrollFrame(ttk.Frame):
 
 
 class ProgressDialog(tk.Toplevel):
-    def __init__(self, app, jobs, dur, out):
+    def __init__(self, app, jobs, dur, out, on_finish=None, cleanup=None, check=None):
         super().__init__(app)
+        self.check = check
         self.app, self.jobs, self.dur, self.out = app, jobs, dur, out
+        self.on_finish = on_finish or app.on_save_finished
+        self.cleanup = cleanup or []
         self.title("Salvando vídeo")
         self.configure(bg=PALETTE["bg"])
         self.transient(app)
@@ -762,6 +1060,16 @@ class ProgressDialog(tk.Toplevel):
                           on_progress=lambda p: self.q.put(("progress", p)),
                           is_cancelled=lambda: self.cancelled,
                           set_proc=self._set_proc)
+            if ok and self.check:
+                retry = self.check(self.out)
+                if retry:
+                    self.q.put(("progress", 0.0))
+                    ok = run_jobs([(f"Ajustando para caber no limite — {lbl[0].lower()}{lbl[1:]}", c, w)
+                                   for lbl, c, w in retry], self.dur, tmp,
+                                  on_stage=lambda st: self.q.put(("stage", st)),
+                                  on_progress=lambda p: self.q.put(("progress", p)),
+                                  is_cancelled=lambda: self.cancelled,
+                                  set_proc=self._set_proc)
             if not ok:
                 try:
                     os.remove(self.out)
@@ -778,6 +1086,11 @@ class ProgressDialog(tk.Toplevel):
             self.q.put(("error", str(e)))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+            for f in self.cleanup:
+                try:
+                    os.remove(f)
+                except OSError:
+                    pass
 
     def _poll(self):
         try:
@@ -797,7 +1110,7 @@ class ProgressDialog(tk.Toplevel):
                 elif kind in ("done", "error", "cancelled"):
                     self.grab_release()
                     self.destroy()
-                    self.app.on_save_finished(kind, self.out, msg[1] if kind == "error" else None)
+                    self.on_finish(kind, self.out, msg[1] if kind == "error" else None)
                     return
         except queue.Empty:
             pass
@@ -819,12 +1132,264 @@ class ProgressDialog(tk.Toplevel):
                 pass
 
 
+class ShortcutsDialog(tk.Toplevel):
+    """Lista de atalhos, com opção de trocar cada um."""
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.app = app
+        self.map = dict(app.shortcuts)
+        self.title("Atalhos de teclado")
+        self.transient(app)
+        self.configure(bg=PALETTE["bg"])
+        f = ttk.Frame(self, padding=12)
+        f.pack(fill="both", expand=True)
+        ttk.Label(f, text="Dê dois cliques numa ação (ou selecione e clique em \"Alterar\") para "
+                          "escolher outra tecla.", wraplength=int(440 * app.k)).pack(anchor="w", pady=(0, 8))
+        body = ttk.Frame(f)
+        body.pack(fill="both", expand=True)
+        self.tree = ttk.Treeview(body, columns=("acao", "tecla"), show="headings", height=16, selectmode="browse")
+        self.tree.heading("acao", text="Ação")
+        self.tree.heading("tecla", text="Atalho")
+        self.tree.column("acao", width=int(270 * app.k))
+        self.tree.column("tecla", width=int(150 * app.k), anchor="center")
+        sb = ttk.Scrollbar(body, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=sb.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        self.tree.bind("<Double-1>", lambda e: self.change())
+        self.tree.bind("<Return>", lambda e: self.change())
+        bt = ttk.Frame(f)
+        bt.pack(fill="x", pady=(10, 0))
+        ttk.Button(bt, text="Alterar…", command=self.change).pack(side="left")
+        ttk.Button(bt, text="Sem atalho", command=self.clear).pack(side="left", padx=4)
+        ttk.Button(bt, text="Restaurar padrões", command=self.defaults).pack(side="left")
+        ttk.Button(bt, text="Fechar", command=self.destroy).pack(side="right")
+        self._fill()
+        set_titlebar_dark(self, app.dark)
+        self.grab_set()
+        self.tree.focus_set()
+
+    def _fill(self, keep=None):
+        self.tree.delete(*self.tree.get_children())
+        for aid, label, _ in ACTIONS:
+            self.tree.insert("", "end", iid=aid, values=(label, seq_label(self.map.get(aid))))
+        sel = keep or ACTIONS[0][0]
+        self.tree.selection_set(sel)
+        self.tree.focus(sel)
+        self.tree.see(sel)
+
+    def _selected(self):
+        sel = self.tree.selection()
+        return sel[0] if sel else None
+
+    def _commit(self, keep):
+        self.app.set_shortcuts(self.map)
+        self._fill(keep)
+
+    def clear(self):
+        aid = self._selected()
+        if aid:
+            self.map[aid] = ""
+            self._commit(aid)
+
+    def defaults(self):
+        if messagebox.askyesno("Atalhos", "Voltar todos os atalhos para o padrão?", parent=self):
+            self.map = dict(DEFAULT_KEYS)
+            self._commit(self._selected())
+
+    def change(self):
+        aid = self._selected()
+        if not aid:
+            return
+        label = next(lbl for a, lbl, _ in ACTIONS if a == aid)
+        cap = tk.Toplevel(self)
+        cap.title("Novo atalho")
+        cap.transient(self)
+        cap.configure(bg=PALETTE["bg"])
+        fr = ttk.Frame(cap, padding=16)
+        fr.pack(fill="both", expand=True)
+        ttk.Label(fr, text=f"Pressione a tecla (ou combinação) para:\n\n{label}", justify="center").pack()
+        ttk.Label(fr, text="Esc cancela", style="Hint.TLabel").pack(pady=(10, 0))
+        cap.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - cap.winfo_width()) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - cap.winfo_height()) // 3
+        cap.geometry(f"+{max(0, x)}+{max(0, y)}")
+        set_titlebar_dark(cap, self.app.dark)
+        cap.grab_set()
+        cap.focus_force()
+
+        def on_key(e):
+            seq = event_to_seq(e)
+            if seq is None:
+                return "break"
+            if seq == "<Key-Escape>":
+                cap.destroy()
+                return "break"
+            other = next((a for a, v in self.map.items() if v == seq and a != aid), None)
+            if other:
+                olabel = next(lbl for a, lbl, _ in ACTIONS if a == other)
+                if not messagebox.askyesno("Atalho em uso", f"{seq_label(seq)} já é usado em \"{olabel}\".\n\n"
+                                           f"Passar para \"{label}\"? (\"{olabel}\" fica sem atalho)", parent=cap):
+                    return "break"
+                self.map[other] = ""
+            self.map[aid] = seq
+            cap.destroy()
+            self.grab_set()
+            self._commit(aid)
+            return "break"
+        cap.bind("<KeyPress>", on_key)
+        cap.protocol("WM_DELETE_WINDOW", cap.destroy)
+
+
+class JoinDialog(tk.Toplevel):
+    """Modo separado para emendar vários vídeos num só, que depois abre no editor."""
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.app = app
+        self.files, self.infos = [], []
+        self.title("Juntar vídeos")
+        self.transient(app)
+        self.configure(bg=PALETTE["bg"])
+        k = app.k
+        f = ttk.Frame(self, padding=12)
+        f.pack(fill="both", expand=True)
+        ttk.Label(f, text="Os vídeos são emendados na ordem da lista. O resultado abre no editor, "
+                          "para você cortar e comprimir como de costume.",
+                  wraplength=int(520 * k), justify="left").pack(anchor="w", pady=(0, 8))
+        mid = ttk.Frame(f)
+        mid.pack(fill="both", expand=True)
+        P = PALETTE
+        self.lb = tk.Listbox(mid, height=9, width=60, activestyle="none", bg=P["field"], fg=P["fg"],
+                             selectbackground=P["sel"], selectforeground="#ffffff", highlightthickness=1,
+                             highlightbackground=P["border"], highlightcolor=P["accent"], relief="flat",
+                             font=(app.font_base, 9))
+        self.lb.pack(side="left", fill="both", expand=True)
+        side = ttk.Frame(mid)
+        side.pack(side="left", fill="y", padx=(8, 0))
+        for txt, cmd in (("Adicionar…", self.add), ("Remover", self.remove),
+                         ("▲ Subir", lambda: self.move(-1)), ("▼ Descer", lambda: self.move(1))):
+            ttk.Button(side, text=txt, command=cmd).pack(fill="x", pady=2)
+        self.info_lbl = ttk.Label(f, text="", wraplength=int(520 * k), justify="left")
+        self.info_lbl.pack(anchor="w", pady=(10, 0))
+        self.fit_row = ttk.Frame(f)
+        ttk.Label(self.fit_row, text="Quando o tamanho for diferente do primeiro vídeo:").pack(side="left")
+        self.fit_var = tk.StringVar(value="Barras pretas")
+        ttk.Combobox(self.fit_row, textvariable=self.fit_var, state="readonly", width=16,
+                     values=["Barras pretas", "Esticar", "Cortar bordas"]).pack(side="left", padx=6)
+        bt = ttk.Frame(f)
+        bt.pack(side="bottom", fill="x", pady=(12, 0))
+        self.go = ttk.Button(bt, text="Juntar e abrir no editor", style="Accent.TButton", command=self.join)
+        self.go.pack(side="right")
+        ttk.Button(bt, text="Cancelar", command=self.destroy).pack(side="right", padx=6)
+        if app.src:
+            self._append(app.src, app.info)
+        self._refresh()
+        set_titlebar_dark(self, app.dark)
+        self.grab_set()
+
+    def _append(self, path, info):
+        self.files.append(path)
+        self.infos.append(info)
+
+    def add(self):
+        paths = filedialog.askopenfilenames(parent=self, title="Adicionar vídeos",
+                                            filetypes=[("Vídeos", VIDEO_TYPES), ("Todos os arquivos", "*.*")])
+        for p in paths:
+            try:
+                info = probe(self.app.ffprobe, p)
+            except Exception as e:  # noqa: BLE001
+                messagebox.showerror("Juntar vídeos", f"Não consegui abrir {os.path.basename(p)}.\n\n{e}", parent=self)
+                continue
+            self._append(os.path.abspath(p), info)
+        self._refresh()
+
+    def remove(self):
+        sel = self.lb.curselection()
+        if sel:
+            del self.files[sel[0]]
+            del self.infos[sel[0]]
+            self._refresh(min(sel[0], len(self.files) - 1))
+
+    def move(self, d):
+        sel = self.lb.curselection()
+        if not sel:
+            return
+        i, j = sel[0], sel[0] + d
+        if 0 <= j < len(self.files):
+            self.files[i], self.files[j] = self.files[j], self.files[i]
+            self.infos[i], self.infos[j] = self.infos[j], self.infos[i]
+            self._refresh(j)
+
+    def _refresh(self, select=None):
+        self.lb.delete(0, "end")
+        for n, (p, i) in enumerate(zip(self.files, self.infos)):
+            self.lb.insert("end", f"{n + 1}.  {os.path.basename(p)}   —   {i['width']}×{i['height']}  ·  "
+                                  f"{fmt_time(i['duration'])[:8]}")
+        if select is not None and select >= 0:
+            self.lb.selection_set(select)
+        total = sum(i["duration"] for i in self.infos)
+        if len(self.files) < 2:
+            txt = "Adicione pelo menos dois vídeos."
+            self.fit_row.pack_forget()
+        elif join_compatible(self.infos):
+            txt = (f"Duração total: {fmt_time(total)[:8]}. Os vídeos têm o mesmo formato, então a junção é "
+                   "instantânea e sem perda de qualidade.")
+            self.fit_row.pack_forget()
+        else:
+            txt = (f"Duração total: {fmt_time(total)[:8]}. Os vídeos têm formatos diferentes, então serão "
+                   "convertidos para o formato do primeiro, em alta qualidade. Pode levar alguns minutos.")
+            self.fit_row.pack(anchor="w", pady=(6, 0), before=self.go.master)
+        self.info_lbl.config(text=txt)
+        self.go.state(["!disabled"] if len(self.files) >= 2 else ["disabled"])
+
+    def join(self):
+        if len(self.files) < 2:
+            return
+        first = self.files[0]
+        base, ext = os.path.splitext(os.path.basename(first))
+        compat = join_compatible(self.infos)
+        ext = ext if compat and ext.lower() in (".mp4", ".mkv", ".mov") else ".mp4"
+        out = filedialog.asksaveasfilename(parent=self, title="Salvar o vídeo juntado como",
+                                           initialdir=os.path.dirname(first), initialfile=f"{base}_juntado{ext}",
+                                           defaultextension=ext,
+                                           filetypes=[("Vídeo", "*" + ext), ("Todos os arquivos", "*.*")])
+        if not out:
+            return
+        out = os.path.abspath(out)
+        if os.path.normcase(out) in {os.path.normcase(x) for x in self.files}:
+            messagebox.showerror("Juntar vídeos", "Escolha um nome diferente dos vídeos da lista.", parent=self)
+            return
+        fit = {"Barras pretas": "keep", "Esticar": "stretch", "Cortar bordas": "crop"}[self.fit_var.get()]
+        fd, list_path = tempfile.mkstemp(prefix="enxuto_lista_", suffix=".txt")
+        os.close(fd)
+        jobs = build_join_job(self.app.ff, self.files, self.infos, out, fit, list_path)
+        total = sum(i["duration"] for i in self.infos)
+        app = self.app
+        self.grab_release()
+        self.destroy()
+
+        def done(kind, path, err):
+            if kind == "done":
+                app.open_file(path)
+                app.status_lbl.config(text=f"Vídeos juntados em {path}. Agora é só cortar/comprimir e salvar.")
+            elif kind == "error":
+                messagebox.showerror("Erro ao juntar", "O FFmpeg não conseguiu juntar os vídeos:\n\n" + err,
+                                     parent=app)
+            else:
+                app.status_lbl.config(text="Junção cancelada.")
+        app.stop_play()
+        ProgressDialog(app, jobs, total, out, on_finish=done, cleanup=[list_path])
+
+
 # --------------------------------------------------------------------------- janela principal
 
 class App(tk.Tk):
-    def __init__(self, ff, ffprobe):
+    def __init__(self, ff, ffprobe, ffplay=None):
         super().__init__()
-        self.ff, self.ffprobe = ff, ffprobe
+        self.ff, self.ffprobe, self.ffplay = ff, ffprobe, ffplay
+        self.audio_player = None
         self.k = max(1.0, self.winfo_fpixels("1i") / 96.0)
         self.title(APP_NAME)
         self.geometry(f"{int(1180 * self.k)}x{int(720 * self.k)}")
@@ -851,6 +1416,12 @@ class App(tk.Tk):
         self.src = None
         self.info = None
         self.keyframes = []
+        self.edits = []
+        self.history = []
+        self.shortcuts = dict(DEFAULT_KEYS)
+        self.shortcuts.update({k: v for k, v in (self.settings.get("shortcuts") or {}).items() if k in DEFAULT_KEYS})
+        self._bound = []
+        self._accels = []
         self.pos = 0.0
         self.A = 0.0
         self.B = 0.0
@@ -866,6 +1437,7 @@ class App(tk.Tk):
         self._build_ui()
         self._bind_keys()
         self.apply_theme(save=False)
+        self._refresh_edits()
         self._refresh_panel()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(50, self._poll)
@@ -879,21 +1451,40 @@ class App(tk.Tk):
         self.menus.append(menu)
         return menu
 
+    def _menu_item(self, menu, label, action):
+        menu.add_command(label=label, command=lambda: self._actions()[action]())
+        self._accels.append((menu, menu.index("end"), action))
+
+    def key_label(self, action):
+        seq = self.shortcuts.get(action)
+        return seq_label(seq) if seq else "sem atalho"
+
+    def _tip(self, text, action):
+        return lambda: f"{text} ({self.key_label(action)})"
+
     def _build_menu(self):
         bar = ttk.Frame(self, style="Menubar.TFrame")
         bar.pack(side="top", fill="x")
         arq = self._menu(bar, "Arquivo")
-        arq.add_command(label="Abrir vídeo…", accelerator="Ctrl+O", command=self.open_file)
-        arq.add_command(label="Salvar vídeo…", accelerator="Ctrl+S", command=self.save)
+        self._menu_item(arq, "Abrir vídeo…", "open")
+        self._menu_item(arq, "Salvar vídeo…", "save")
+        arq.add_separator()
+        arq.add_command(label="Juntar vídeos…", command=self.open_join)
         arq.add_separator()
         arq.add_command(label="Sair", command=self._on_close)
         ed = self._menu(bar, "Editar")
-        ed.add_command(label="Definir início (A)", accelerator="[", command=self.set_a)
-        ed.add_command(label="Definir fim (B)", accelerator="]", command=self.set_b)
-        ed.add_command(label="Limpar seleção", command=self.clear_selection)
+        self._menu_item(ed, "Desfazer", "undo")
         ed.add_separator()
-        ed.add_command(label="Ir para A", command=lambda: self.seek(self.A))
-        ed.add_command(label="Ir para B", command=self.goto_b)
+        self._menu_item(ed, "Marcar início (A)", "set_a")
+        self._menu_item(ed, "Marcar fim (B)", "set_b")
+        self._menu_item(ed, "Limpar seleção", "clear_sel")
+        self._menu_item(ed, "Ir para A", "goto_a")
+        self._menu_item(ed, "Ir para B", "goto_b")
+        ed.add_separator()
+        self._menu_item(ed, "Remover o trecho A–B", "cut")
+        self._menu_item(ed, "Acelerar o trecho A–B", "speed")
+        ed.add_separator()
+        ed.add_command(label="Atalhos de teclado…", command=self._show_shortcuts)
         ex = self._menu(bar, "Exibir")
         tema = tk.Menu(ex, tearoff=False)
         self.menus.append(tema)
@@ -901,7 +1492,7 @@ class App(tk.Tk):
             tema.add_radiobutton(label=label, value=val, variable=self.theme_var, command=self.apply_theme)
         ex.add_cascade(label="Tema", menu=tema)
         aj = self._menu(bar, "Ajuda")
-        aj.add_command(label="Atalhos de teclado", command=self._show_shortcuts)
+        aj.add_command(label="Atalhos de teclado…", command=self._show_shortcuts)
         aj.add_command(label="Sobre", command=lambda: messagebox.showinfo(
             "Sobre", f"{APP_NAME} {VERSION}\n\nCorta e comprime vídeos com o FFmpeg.", parent=self))
 
@@ -956,31 +1547,49 @@ class App(tk.Tk):
         ctl = ttk.Frame(right)
         ctl.pack(fill="x")
         btns = [
-            ("▶", self.toggle_play, "Tocar / pausar (Espaço)"),
-            ("⏮", lambda: self.seek(0), "Primeiro quadro (Home)"),
-            ("⏪", self.prev_key, "Keyframe anterior (↓)"),
-            ("◀", lambda: self.step_frames(-1), "Quadro anterior (←)"),
-            ("▶|", lambda: self.step_frames(1), "Próximo quadro (→)"),
-            ("⏩", self.next_key, "Próximo keyframe (↑)"),
-            ("⏭", lambda: self.seek(self.max_t()), "Último quadro (End)"),
+            ("▶", self.toggle_play, "Tocar / pausar", "play"),
+            ("⏮", lambda: self.seek(0), "Primeiro quadro", "first"),
+            ("⏪", self.prev_key, "Keyframe anterior", "prev_key"),
+            ("◀", lambda: self.step_frames(-1), "Quadro anterior", "prev_frame"),
+            ("▶|", lambda: self.step_frames(1), "Próximo quadro", "next_frame"),
+            ("⏩", self.next_key, "Próximo keyframe", "next_key"),
+            ("⏭", lambda: self.seek(self.max_t()), "Último quadro", "last"),
         ]
-        for i, (txt, cmd, tip) in enumerate(btns):
+        for i, (txt, cmd, tip, act) in enumerate(btns):
             b = ttk.Button(ctl, text=txt, width=3, command=cmd, style="Transport.TButton", takefocus=False)
             b.pack(side="left", padx=1)
-            Tooltip(b, tip)
+            Tooltip(b, self._tip(tip, act))
             if i == 0:
                 self.play_btn = b
+                self.mute = bool(self.settings.get("mute", False))
+                self.mute_btn = ttk.Button(ctl, text="🔇" if self.mute else "🔊", width=3, command=self.toggle_mute,
+                                           style="Transport.TButton", takefocus=False)
+                self.mute_btn.pack(side="left", padx=1)
+                Tooltip(self.mute_btn, self._tip("Ligar / desligar o som da prévia", "mute"))
         ttk.Separator(ctl, orient="vertical").pack(side="left", fill="y", padx=6)
         ba = ttk.Button(ctl, text="A", width=3, command=self.set_a, style="Transport.TButton", takefocus=False)
         ba.pack(side="left", padx=1)
-        Tooltip(ba, "Marcar início da seleção ( [ )")
+        Tooltip(ba, self._tip("Marcar início da seleção", "set_a"))
         bb = ttk.Button(ctl, text="B", width=3, command=self.set_b, style="Transport.TButton", takefocus=False)
         bb.pack(side="left", padx=1)
-        Tooltip(bb, "Marcar fim da seleção ( ] )")
+        Tooltip(bb, self._tip("Marcar fim da seleção", "set_b"))
         bc = ttk.Button(ctl, text="✕", width=3, command=self.clear_selection, style="Transport.TButton",
                         takefocus=False)
         bc.pack(side="left", padx=1)
-        Tooltip(bc, "Limpar seleção (vídeo inteiro)")
+        Tooltip(bc, self._tip("Limpar seleção (vídeo inteiro)", "clear_sel"))
+        ttk.Separator(ctl, orient="vertical").pack(side="left", fill="y", padx=6)
+        bcut = ttk.Button(ctl, text="✂ Remover", command=self.cut_selection, style="Edit.TButton",
+                          takefocus=False)
+        bcut.pack(side="left", padx=1)
+        Tooltip(bcut, self._tip("Tira o trecho entre A e B do vídeo; as partes de antes e depois ficam emendadas",
+                                "cut"))
+        bsp = ttk.Button(ctl, text="⏩ Acelerar", command=self.speed_selection, style="Edit.TButton",
+                         takefocus=False)
+        bsp.pack(side="left", padx=(4, 1))
+        Tooltip(bsp, self._tip("Acelera o trecho entre A e B (o áudio acelera junto, sem ficar fino)", "speed"))
+        self.speed_var = tk.StringVar(value="2×")
+        ttk.Combobox(ctl, textvariable=self.speed_var, values=list(SPEEDS), state="readonly", width=5).pack(
+            side="left", padx=(2, 0))
 
         # segunda linha: tempo atual (esquerda) e seleção A/B (direita)
         row2 = ttk.Frame(right)
@@ -1074,8 +1683,16 @@ class App(tk.Tk):
         sf = self.scroll = ScrollFrame(left, self._bg())
         sf.pack(side="top", fill="both", expand=True)
         left = sf.inner
+        # edições no meio do vídeo (escondido até existir alguma)
+        self.edits_frame = ttk.LabelFrame(left, text="Edições", padding=8)
+        self.edits_list = ttk.Frame(self.edits_frame)
+        self.edits_list.pack(fill="x")
+        eb = ttk.Frame(self.edits_frame)
+        eb.pack(fill="x", pady=(6, 0))
+        ttk.Button(eb, text="↶ Desfazer", command=self.undo, style="Small.TButton").pack(side="left")
+        ttk.Button(eb, text="Apagar todas", command=self.clear_edits, style="Small.TButton").pack(side="right")
         # vídeo
-        vf = ttk.LabelFrame(left, text="Saída de vídeo", padding=8)
+        vf = self.vf_frame = ttk.LabelFrame(left, text="Saída de vídeo", padding=8)
         vf.pack(fill="x")
         vf.columnconfigure(1, weight=1)
         self.v_out = tk.StringVar(value=list(VIDEO_OUT)[0])
@@ -1203,51 +1820,79 @@ class App(tk.Tk):
         for var in (self.mb_var, self.pct_var, self.crf_var, self.max_var, self.two_pass):
             var.trace_add("write", lambda *a: self._refresh_panel())
 
-    def _bind_keys(self):
-        typing = (tk.Entry, ttk.Entry, tk.Spinbox, ttk.Spinbox, ttk.Combobox, ttk.Scale)
+    def _actions(self):
+        return {
+            "play": self.toggle_play,
+            "mute": self.toggle_mute,
+            "prev_frame": lambda: self.step_frames(-1),
+            "next_frame": lambda: self.step_frames(1),
+            "back_1s": lambda: self.step_secs(-1),
+            "fwd_1s": lambda: self.step_secs(1),
+            "back_10s": lambda: self.step_secs(-10),
+            "fwd_10s": lambda: self.step_secs(10),
+            "prev_key": self.prev_key,
+            "next_key": self.next_key,
+            "first": lambda: self.seek(0),
+            "last": lambda: self.seek(self.max_t()),
+            "set_a": self.set_a,
+            "set_b": self.set_b,
+            "goto_a": lambda: self.seek(self.A),
+            "goto_b": self.goto_b,
+            "clear_sel": self.clear_selection,
+            "cut": self.cut_selection,
+            "speed": self.speed_selection,
+            "undo": self.undo,
+            "open": self.open_file,
+            "save": self.save,
+        }
 
-        def guard(func):
-            def handler(e):
-                if isinstance(self.focus_get(), typing):
+    def _bind_keys(self):
+        typing = (tk.Entry, ttk.Entry, tk.Spinbox, ttk.Spinbox, ttk.Combobox, ttk.Scale, tk.Listbox,
+                  ttk.Treeview)
+        for seq in self._bound:
+            try:
+                self.unbind(seq)
+            except tk.TclError:
+                pass
+        self._bound = []
+        actions = self._actions()
+
+        def make(func, seq):
+            mods, _ = seq_parts(seq)
+            needs_guard = not ({"Control", "Alt"} & set(mods))
+
+            def handler(_e):
+                if needs_guard and isinstance(self.focus_get(), typing):
                     return None
                 func()
                 return "break"
             return handler
 
-        keys = {
-            "<space>": self.toggle_play,
-            "<Left>": lambda: self.step_frames(-1),
-            "<Right>": lambda: self.step_frames(1),
-            "<Shift-Left>": lambda: self.step_secs(-1),
-            "<Shift-Right>": lambda: self.step_secs(1),
-            "<Control-Left>": lambda: self.step_secs(-10),
-            "<Control-Right>": lambda: self.step_secs(10),
-            "<Up>": self.next_key,
-            "<Down>": self.prev_key,
-            "<bracketleft>": self.set_a,
-            "<bracketright>": self.set_b,
-            "<Home>": lambda: self.seek(0),
-            "<End>": lambda: self.seek(self.max_t()),
-        }
-        for seq, fn in keys.items():
-            self.bind(seq, guard(fn))
-        self.bind("<Control-o>", lambda e: self.open_file())
-        self.bind("<Control-O>", lambda e: self.open_file())
-        self.bind("<Control-s>", lambda e: self.save())
-        self.bind("<Control-S>", lambda e: self.save())
+        for aid, _, _ in ACTIONS:
+            seq = self.shortcuts.get(aid)
+            if not seq:
+                continue
+            for v in seq_variants(seq):
+                try:
+                    self.bind(v, make(actions[aid], seq))
+                    self._bound.append(v)
+                except tk.TclError:
+                    pass
+        for menu, idx, aid in self._accels:
+            seq = self.shortcuts.get(aid)
+            menu.entryconfigure(idx, accelerator=seq_label(seq) if seq else "")
+
+    def set_shortcuts(self, mapping):
+        self.shortcuts = dict(mapping)
+        self.settings["shortcuts"] = {k: v for k, v in self.shortcuts.items() if v != DEFAULT_KEYS.get(k)}
+        save_settings(self.settings)
+        self._bind_keys()
 
     def _show_shortcuts(self):
-        messagebox.showinfo("Atalhos de teclado", (
-            "Espaço\tTocar / pausar\n"
-            "← / →\tQuadro anterior / próximo\n"
-            "Shift + ← / →\tVoltar / avançar 1 s\n"
-            "Ctrl + ← / →\tVoltar / avançar 10 s\n"
-            "↓ / ↑\tKeyframe anterior / próximo\n"
-            "Home / End\tInício / fim do vídeo\n"
-            "[  /  ]\tMarcar A (início) / B (fim)\n"
-            "Ctrl + O\tAbrir vídeo\n"
-            "Ctrl + S\tSalvar vídeo\n\n"
-            "Clique ou arraste na linha do tempo para navegar."), parent=self)
+        ShortcutsDialog(self)
+
+    def open_join(self):
+        JoinDialog(self)
 
     # ---------------------------------------------------------------- painel
     def _refresh_panel(self, *_):
@@ -1375,7 +2020,11 @@ class App(tk.Tk):
             raise ValueError("Abra um vídeo primeiro.")
         if self.B - self.A < 0.05:
             raise ValueError("A seleção (A → B) está curta demais.")
-        s = dict(src=self.src, start=self.A, end=self.B,
+        segs = compute_segments(self.A, self.B, self.edits)
+        if not segs:
+            raise ValueError("Não sobrou nada do vídeo: os trechos removidos cobrem toda a seleção A–B.")
+        s = dict(src=self.src, start=self.A, end=self.B, segments=segs,
+                 out_dur=sum((b - a) / f for a, b, f in segs), src_dur=sum(b - a for a, b, _ in segs),
                  vcodec=VIDEO_OUT[self.v_out.get()], mode=MODES[self.mode_var.get()],
                  audio=AUDIO_OUT[self.a_out.get()], height=RESOLUTIONS[self.res_var.get()],
                  preset=PRESETS[self.preset_var.get()], two_pass=self.two_pass.get(),
@@ -1426,7 +2075,13 @@ class App(tk.Tk):
         try:
             s = self.collect()
             info = self.info
-            part = info["size"] * dur / info["duration"]
+            part = info["size"] * s["src_dur"] / info["duration"]
+            edited = not (len(s["segments"]) == 1 and s["segments"][0][2] == 1)
+            if edited:
+                lines = [f"Duração final: {fmt_time(s['out_dur'])}  (antes: {fmt_time(dur)})"]
+            if edited and (s["vcodec"] == "copy" or (s["audio"] == "copy" and info["audio"] and s["tracks"])):
+                raise ValueError("Com trechos removidos ou acelerados, o vídeo precisa ser recodificado: "
+                                 "escolha H.264/H.265 no vídeo e AAC no áudio.")
             if s["vcodec"] == "copy":
                 lines.append(f"Tamanho: ~{fmt_size(part)} (sem perda)")
                 kf = self._prev_keyframe(self.A)
@@ -1450,7 +2105,7 @@ class App(tk.Tk):
                 lines.append("Tamanho final: depende do vídeo (o CRF fixa a qualidade, não o tamanho).")
             else:
                 ak = audio_kbps_for(s, info)
-                mx = (s["maxrate"] + ak) * 1000 * dur / 8
+                mx = (s["maxrate"] + ak) * 1000 * s["out_dur"] / 8
                 lines.append(f"Tamanho final: no máximo ~{fmt_size(mx)}")
         except ValueError as e:
             warn = str(e)
@@ -1480,6 +2135,8 @@ class App(tk.Tk):
         self.src = os.path.abspath(path)
         self.info = info
         self.keyframes = []
+        self.edits, self.history = [], []
+        self._refresh_edits()
         self.pos, self.A, self.B = 0.0, 0.0, info["duration"]
         self.title(f"{os.path.basename(path)} — {APP_NAME}")
         self.fmt_var.set("MKV" if path.lower().endswith(".mkv") else "MP4")
@@ -1522,7 +2179,20 @@ class App(tk.Tk):
             messagebox.showwarning(APP_NAME, str(e), parent=self)
             return
         self._last_settings = s
-        ProgressDialog(self, jobs, s["end"] - s["start"], s["out"])
+        info, ff = self.info, self.ff
+
+        def check(out):
+            """Se o vídeo passou do limite em MB, refaz uma vez com um bitrate proporcionalmente menor."""
+            if s["mode"] != "mb" or s["vcodec"] == "copy" or not os.path.exists(out):
+                return None
+            size, limit = os.path.getsize(out), s["mb"] * 1024 * 1024
+            if size <= limit:
+                return None
+            try:
+                return build_jobs(dict(s, mb=s["mb"] * limit / size * 0.97), info, ff)
+            except ValueError:
+                return None
+        ProgressDialog(self, jobs, s["out_dur"], s["out"], check=check)
 
     def on_save_finished(self, kind, out, err):
         if kind == "cancelled":
@@ -1535,10 +2205,10 @@ class App(tk.Tk):
             return
         size = os.path.getsize(out) if os.path.exists(out) else 0
         s = self._last_settings
-        part = self.info["size"] * (s["end"] - s["start"]) / self.info["duration"]
+        part = self.info["size"] * s["src_dur"] / self.info["duration"]
         msg = f"Vídeo salvo!\n\n{os.path.basename(out)}\nTamanho: {fmt_size(size)}"
         if s["vcodec"] != "copy" and part > 0:
-            msg += f"  ({size / part * 100:.0f}% do trecho original, que tinha ~{fmt_size(part)})"
+            msg += f"  ({size / part * 100:.0f}% do original, que tinha ~{fmt_size(part)})"
         self.status_lbl.config(text=f"Salvo: {out}  ({fmt_size(size)})")
         if messagebox.askyesno("Pronto", msg + "\n\nAbrir a pasta do arquivo?", parent=self):
             open_folder(out)
@@ -1619,6 +2289,97 @@ class App(tk.Tk):
         self._update_time_ui()
         self._update_estimate()
 
+    # ---------------------------------------------------------------- edições
+    def _push_history(self):
+        self.history.append((list(self.edits), self.A, self.B))
+        del self.history[:-50]
+
+    def _selection_for_edit(self, verb):
+        if not self.info:
+            return None
+        whole = self.A <= 0.01 and self.B >= self.info["duration"] - 0.01
+        if whole or self.B - self.A < 0.05:
+            messagebox.showinfo(APP_NAME, f"Primeiro marque o trecho que quer {verb}: vá até o início dele e "
+                                          f"aperte A ({self.key_label('set_a')}), depois vá até o fim e aperte B "
+                                          f"({self.key_label('set_b')}).", parent=self)
+            return None
+        return self.A, self.B
+
+    def cut_selection(self):
+        sel = self._selection_for_edit("remover")
+        if not sel:
+            return
+        self._push_history()
+        self.edits = add_edit(self.edits, dict(kind="cut", start=sel[0], end=sel[1]))
+        self._after_edit(f"Trecho {fmt_time(sel[0])} → {fmt_time(sel[1])} removido.")
+
+    def speed_selection(self):
+        sel = self._selection_for_edit("acelerar")
+        if not sel:
+            return
+        f = SPEEDS.get(self.speed_var.get(), 2.0)
+        self._push_history()
+        self.edits = add_edit(self.edits, dict(kind="speed", start=sel[0], end=sel[1], factor=f))
+        self._after_edit(f"Trecho {fmt_time(sel[0])} → {fmt_time(sel[1])} acelerado ({self.speed_var.get()}).")
+
+    def _after_edit(self, msg):
+        # a seleção volta a ser o vídeo inteiro para não confundir com o trecho exportado
+        self.A, self.B = 0.0, self.info["duration"]
+        self._refresh_edits()
+        self._update_time_ui()
+        self._update_estimate()
+        self.status_lbl.config(text=msg + f"  (desfazer: {self.key_label('undo')})")
+
+    def remove_edit(self, idx):
+        self._push_history()
+        del self.edits[idx]
+        self._refresh_edits()
+        self._update_time_ui()
+        self._update_estimate()
+
+    def clear_edits(self):
+        if not self.edits:
+            return
+        self._push_history()
+        self.edits = []
+        self._refresh_edits()
+        self._update_time_ui()
+        self._update_estimate()
+
+    def undo(self):
+        if not self.history:
+            self.status_lbl.config(text="Nada para desfazer.")
+            return
+        self.edits, self.A, self.B = self.history.pop()
+        self._refresh_edits()
+        self._update_time_ui()
+        self._update_estimate()
+        self.status_lbl.config(text="Desfeito.")
+
+    def _refresh_edits(self):
+        if not hasattr(self, "edits_frame"):
+            return
+        for w in self.edits_list.winfo_children():
+            w.destroy()
+        if not self.edits:
+            self.edits_frame.pack_forget()
+            return
+        if not self.edits_frame.winfo_ismapped():
+            self.edits_frame.pack(fill="x", pady=(0, 8), before=self.vf_frame)
+        self.edits_list.columnconfigure(0, weight=1)
+        for i, e in enumerate(self.edits):
+            if e["kind"] == "cut":
+                txt = f"✂  {fmt_time(e['start'])[3:]} → {fmt_time(e['end'])[3:]}"
+            else:
+                fac = next((k for k, v in SPEEDS.items() if v == e["factor"]), f"{e['factor']:g}×")
+                txt = f"⏩ {fac}  {fmt_time(e['start'])[3:]} → {fmt_time(e['end'])[3:]}"
+            lb = ttk.Label(self.edits_list, text=txt, cursor="hand2")
+            lb.grid(row=i, column=0, sticky="w", pady=1)
+            lb.bind("<Button-1>", lambda _e, t=e["start"]: self.seek(t))
+            Tooltip(lb, "Clique para ir até o trecho")
+            ttk.Button(self.edits_list, text="✕", width=2, style="Small.TButton", takefocus=False,
+                       command=lambda i=i: self.remove_edit(i)).grid(row=i, column=1, sticky="e")
+
     def goto_b(self):
         if self.info:
             self.seek(self.B - 1.0 / self.info["fps"])
@@ -1670,6 +2431,17 @@ class App(tk.Tk):
 
         xa, xb = X(self.A), X(self.B)
         c.create_rectangle(xa, y - 6, xb, y + 6, fill=P["range"], outline=P["range_line"])
+        small = (self.font_bold[0], 7, "bold")
+        for e in self.edits:
+            ea, eb = X(e["start"]), max(X(e["end"]), X(e["start"]) + 2)
+            if e["kind"] == "cut":
+                c.create_rectangle(ea, y - 8, eb, y + 8, fill=P["cut"], outline=P["cut"])
+                c.create_line(ea, y - 8, eb, y + 8, fill=P["bg"])
+                c.create_line(ea, y + 8, eb, y - 8, fill=P["bg"])
+            else:
+                c.create_rectangle(ea, y - 8, eb, y + 8, fill=P["fast"], outline=P["fast"])
+                if eb - ea > 24:
+                    c.create_text((ea + eb) / 2, y, text=f"{e['factor']:g}×", fill="#000000", font=small)
         fnt = (self.font_bold[0], 7, "bold")
         c.create_text(xa, H - 1, text="A", anchor="s", fill=P["range_line"], font=fnt)
         c.create_text(xb, H - 1, text="B", anchor="s", fill=P["range_line"], font=fnt)
@@ -1747,10 +2519,58 @@ class App(tk.Tk):
         self._play_first = None
         self._play_idx = 0
         self.play_btn.config(text="⏸")
-        self.status_lbl.config(text="Reproduzindo (a prévia não tem som)…")
+        self._start_audio(self.pos)
+        if not self.ffplay:
+            self.status_lbl.config(text="Reproduzindo (sem som: o ffplay não foi encontrado)…")
+        elif self.mute:
+            self.status_lbl.config(text="Reproduzindo (som desligado)…")
+        else:
+            self.status_lbl.config(text="Reproduzindo…")
         self._play_tick()
 
+    def _preview_tracks(self):
+        """Faixas que a prévia toca: as mesmas que vão para o vídeo salvo."""
+        if not self.info or not self.info["audio"] or AUDIO_OUT[self.a_out.get()] == 0:
+            return []
+        copy = AUDIO_OUT[self.a_out.get()] == "copy"
+        out = []
+        for i, (on, vol, _) in enumerate(self.track_vars):
+            if on.get():
+                try:
+                    v = 100 if copy else max(0, min(int(float(vol.get().replace(",", "."))), 1000))
+                except ValueError:
+                    v = 100
+                out.append((i, v))
+        return out
+
+    def _start_audio(self, t):
+        self._stop_audio()
+        tracks = self._preview_tracks()
+        if self.mute or not self.ffplay or not tracks:
+            return
+        try:
+            self.audio_player = AudioPlayer(self.ff, self.ffplay, self.src, t, tracks)
+        except OSError:
+            self.audio_player = None
+
+    def _stop_audio(self):
+        if self.audio_player:
+            self.audio_player.stop()
+            self.audio_player = None
+
+    def toggle_mute(self):
+        self.mute = not self.mute
+        self.mute_btn.config(text="🔇" if self.mute else "🔊")
+        self.settings["mute"] = self.mute
+        save_settings(self.settings)
+        if self.player:
+            if self.mute:
+                self._stop_audio()
+            else:
+                self._start_audio(self.pos)
+
     def stop_play(self):
+        self._stop_audio()
         if self._play_job:
             self.after_cancel(self._play_job)
             self._play_job = None
@@ -1820,6 +2640,7 @@ class App(tk.Tk):
 
     def _on_close(self):
         self.stop_play()
+        self._stop_audio()
         self.destroy()
 
 
@@ -1851,7 +2672,7 @@ def main():
                                        "winget install Gyan.FFmpeg")
         r.destroy()
         return
-    app = App(ff, fp)
+    app = App(ff, fp, find_tool("ffplay"))
     if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]):
         app.after(300, lambda: app.open_file(sys.argv[1]))
     app.mainloop()

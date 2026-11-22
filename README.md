@@ -4,26 +4,35 @@ Programa simples para **cortar e comprimir vídeos** no Windows, com interface i
 
 ## O que ele faz
 
-- **Corte com marcadores A e B**: prévia do vídeo, linha do tempo, navegação quadro a quadro e por keyframe.
+- **Corte com marcadores A e B**: prévia do vídeo com som, linha do tempo, navegação quadro a quadro e por keyframe.
+- **Remover ou acelerar trechos do meio**: marque o trecho com A e B e use ✂ Remover ou ⏩ Acelerar (1,5× a 16×, com o áudio acelerado sem distorcer a voz). As edições aparecem na linha do tempo e podem ser desfeitas.
+- **Juntar vídeos** (Arquivo → Juntar vídeos…): emenda vários vídeos em sequência e abre o resultado no editor. Vídeos do mesmo formato são juntados na hora, sem perda.
 - **Compressão por tamanho máximo em MB** (padrão), por % do tamanho original, por qualidade constante (CRF) ou por bitrate máximo, em H.264 ou H.265.
 - **Faixas de áudio**: escolher quais faixas entram (ex.: jogo e microfone gravados separados no OBS), ajustar o volume de cada uma e juntar todas numa faixa só.
 - **Resolução e proporção**: reduzir a resolução e manter o formato original, esticar para 16:9 (tela esticada) ou preencher 16:9 cortando as bordas.
 - **Modo "Copiar"**: corte instantâneo e sem perda, sem recodificar.
 - **Tema claro e escuro**, que pode seguir o tema do Windows.
+- **Atalhos de teclado configuráveis** (Editar → Atalhos de teclado…).
 
 Todo o processamento é feito pelo [FFmpeg](https://ffmpeg.org/), que já vai embutido no instalador.
 
-## Atalhos
+## Atalhos padrão
+
+Todos podem ser trocados em **Editar → Atalhos de teclado…**.
 
 | Tecla | Ação |
 |---|---|
-| Espaço | Tocar / pausar (a prévia não tem som) |
+| Espaço | Tocar / pausar |
+| M | Ligar / desligar o som da prévia |
 | ← / → | Quadro anterior / próximo |
 | Shift + ← / → | Voltar / avançar 1 s |
 | Ctrl + ← / → | Voltar / avançar 10 s |
 | ↓ / ↑ | Keyframe anterior / próximo |
 | Home / End | Início / fim do vídeo |
 | [ / ] | Marcar A (início) / B (fim) |
+| Delete | Remover o trecho A–B |
+| R | Acelerar o trecho A–B |
+| Ctrl + Z | Desfazer |
 | Ctrl + O / Ctrl + S | Abrir / salvar vídeo |
 
 ## Estrutura
