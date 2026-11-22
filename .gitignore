@@ -1,0 +1,8 @@
+# arquivos gerados na montagem do instalador
+build/winenv/
+build/dist/
+*.exe
+
+# Python
+__pycache__/
+*.pyc

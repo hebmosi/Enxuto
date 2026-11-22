@@ -1,0 +1,68 @@
+# Enxuto
+
+Programa simples para **cortar e comprimir vídeos** no Windows, com interface inspirada no Avidemux.
+
+## O que ele faz
+
+- **Corte com marcadores A e B**: prévia do vídeo, linha do tempo, navegação quadro a quadro e por keyframe.
+- **Compressão por tamanho máximo em MB** (padrão), por % do tamanho original, por qualidade constante (CRF) ou por bitrate máximo, em H.264 ou H.265.
+- **Faixas de áudio**: escolher quais faixas entram (ex.: jogo e microfone gravados separados no OBS), ajustar o volume de cada uma e juntar todas numa faixa só.
+- **Resolução e proporção**: reduzir a resolução e manter o formato original, esticar para 16:9 (tela esticada) ou preencher 16:9 cortando as bordas.
+- **Modo "Copiar"**: corte instantâneo e sem perda, sem recodificar.
+- **Tema claro e escuro**, que pode seguir o tema do Windows.
+
+Todo o processamento é feito pelo [FFmpeg](https://ffmpeg.org/), que já vai embutido no instalador.
+
+## Atalhos
+
+| Tecla | Ação |
+|---|---|
+| Espaço | Tocar / pausar (a prévia não tem som) |
+| ← / → | Quadro anterior / próximo |
+| Shift + ← / → | Voltar / avançar 1 s |
+| Ctrl + ← / → | Voltar / avançar 10 s |
+| ↓ / ↑ | Keyframe anterior / próximo |
+| Home / End | Início / fim do vídeo |
+| [ / ] | Marcar A (início) / B (fim) |
+| Ctrl + O / Ctrl + S | Abrir / salvar vídeo |
+
+## Estrutura
+
+```
+enxuto.pyw            o programa inteiro (Python + Tkinter)
+build/
+  ambiente.py         baixa Python, Tk e FFmpeg para Windows (conda-forge)
+  montar.py           monta a pasta do programa e confere se não falta nenhuma DLL
+  instalador.nsi      script do instalador (NSIS)
+  icone.py, icone.ico ícone do programa
+```
+
+## Rodar direto pelo código (sem instalar)
+
+Com o Python 3.10+ e o FFmpeg instalados no Windows:
+
+```
+winget install Python.Python.3.12
+winget install Gyan.FFmpeg
+```
+
+Depois é só dar dois cliques em `enxuto.pyw`.
+
+## Gerar o instalador
+
+O instalador é montado em Linux (ou no WSL, dentro do Windows), porque usa o `makensis` e baixa os componentes do Windows pelo conda-forge:
+
+```
+sudo apt install nsis
+pip install py-rattler pefile
+cd build
+python3 ambiente.py      # baixa Python + Tk + FFmpeg para Windows em build/winenv
+python3 montar.py        # monta build/dist/Enxuto e confere as DLLs
+makensis instalador.nsi  # gera build/dist/Enxuto-Instalador-<versão>.exe
+```
+
+Para lançar uma nova versão, altere `VERSION` em `enxuto.pyw` e em `build/instalador.nsi`.
+
+## Licenças
+
+O instalador inclui o Python (licença PSF) e o FFmpeg com x264/x265 (GPL). Os textos das licenças ficam na pasta de instalação (`runtime/LICENSE_PYTHON.txt` e `ffmpeg/licencas/`).
